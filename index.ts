@@ -1,7 +1,30 @@
-import crypto from "crypto";
-import { Resource } from "sst";
-import { Handler } from "aws-lambda";
 import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Handler } from "aws-lambda";
+import crypto from "crypto";
+import { fileTypeFromBuffer } from "file-type";
+import { Resource } from "sst";
+
+// from Soju: https://codeberg.org/emersion/soju/src/branch/master/fileupload/fileupload.go
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "audio/aac",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/ogg",
+  "audio/webm",
+  "image/apng",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "text/plain",
+  "video/mp4",
+  "video/ogg",
+  "video/webm",
+]);
+
+// from Soju: https://codeberg.org/emersion/soju/src/branch/master/fileupload/fileupload.go
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 const filenameWithRandomSuffix = (filename: string) => {
   const randomString = crypto.randomBytes(4).toString("hex");
@@ -78,43 +101,63 @@ export const upload: Handler<RequestEvent> = async (event) => {
   // header: Soju-Username: some-username
   // body: binary image data
   //
-  // The function should:
-  // 1. Validate the request (check User-Agent, Content-Type, Soju-Username)
-  // 2. Extract the image data from the body
-  // 3. Generate a unique filename (e.g., using UUID)
-  // 4. Upload the image to the linked S3 bucket with the generated filename
-  // 5. Return a response with the URL of the uploaded image in the Location header (or an error message in the body)
+  // the function should:
+  // 1. validate the request (check User-Agent, Content-Type, Soju-Username)
+  // 2. extract the image data from the body
+  // 3. generate a unique filename
+  // 4. upload the image to the linked S3 bucket with the generated filename
+  // 5. return a response with the URL of the uploaded image in the Location header (or an error message in the body)
 
   try {
+    const { body } = event;
+
+    if (body == null) {
+      return {
+        statusCode: 400,
+        body: "ERR: Missing body",
+      };
+    }
+
+    const buffer = Buffer.from(event.isBase64Encoded ? body : Buffer.from(body, "utf-8").toString("base64"), "base64");
+
+    if (buffer.byteLength > MAX_FILE_SIZE) {
+      return { statusCode: 413, body: "ERR: File too large" };
+    }
+
+    const file = await (async () => {
+      let contentType = event.headers["content-type"];
+      let extension = contentType?.split("/")[1]?.split("+")[0] ?? "bin";
+
+      if (
+        contentType == null ||
+        contentType === "application/octet-stream" ||
+        contentType === "application/x-www-form-urlencoded"
+      ) {
+        const detectedType = await fileTypeFromBuffer(buffer);
+        contentType = detectedType?.mime ?? "application/octet-stream";
+        extension = detectedType?.ext ?? "bin";
+      }
+
+      // Generate filename if not provided
+      const filename = event.headers["content-disposition"]
+        ? event.headers["content-disposition"].split('filename="')[1].split('"')[0]
+        : `upload-${Date.now().toString()}.${extension}`;
+
+      return {
+        filename,
+        contentType,
+        content: buffer,
+        encoding: "utf-8",
+      };
+    })();
+
     const username = event.headers["soju-username"];
-    const file = event.body
-      ? {
-          // if no filename provided, make a generic name based on the content-type
-          filename: event.headers["content-disposition"]
-            ? event.headers["content-disposition"].split('filename="')[1].split('"')[0]
-            : "unknown",
-          // TODO: detect content-type from binary data if not provided
-          contentType: event.headers["content-type"] ?? "application/octet-stream",
-          content: Buffer.from(
-            event.isBase64Encoded ? event.body : Buffer.from(event.body, "utf-8").toString("base64"),
-            "base64",
-          ),
-          encoding: "utf-8",
-        }
-      : undefined;
 
     // validate values
     if (username == null) {
       return {
         statusCode: 400,
         body: "ERR: Missing `username`",
-      };
-    }
-
-    if (file == null) {
-      return {
-        statusCode: 400,
-        body: "ERR: Missing `file`",
       };
     }
 
@@ -128,11 +171,10 @@ export const upload: Handler<RequestEvent> = async (event) => {
     }
 
     // validate file is an image
-    const isImage = file.contentType.startsWith("image/");
-    if (!isImage) {
+    if (!ALLOWED_MIME_TYPES.has(file.contentType)) {
       return {
         statusCode: 400,
-        body: "ERR: Invalid file type",
+        body: `ERR: Content type ${file.contentType} is not allowed`,
       };
     }
 
