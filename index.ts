@@ -203,7 +203,7 @@ export const upload: Handler<RequestEvent> = async (event) => {
         : `${Resource.ExistingStorage.name}.s3.amazonaws.com`;
     const url = `https://${domain}/${newFilename}`;
     return {
-      statusCode: 200,
+      statusCode: 201,
       body: `SUCCESS: ${url}`,
       headers: {
         location: url,
