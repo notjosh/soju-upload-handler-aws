@@ -108,6 +108,9 @@ export const upload: Handler<RequestEvent> = async (event) => {
   // 4. upload the image to the linked S3 bucket with the generated filename
   // 5. return a response with the URL of the uploaded image in the Location header (or an error message in the body)
 
+  console.log("Received event:", event);
+  console.log("Received event [readable]:", JSON.stringify(event, null, 2));
+
   try {
     const { body } = event;
 
@@ -138,10 +141,23 @@ export const upload: Handler<RequestEvent> = async (event) => {
         extension = detectedType?.ext ?? "bin";
       }
 
-      // Generate filename if not provided
-      const filename = event.headers["content-disposition"]
-        ? event.headers["content-disposition"].split('filename="')[1].split('"')[0]
-        : `upload-${Date.now().toString()}.${extension}`;
+      // generate filename if not provided
+      const filename = (() => {
+        const fallback = `upload-${Date.now().toString()}.${extension}`;
+
+        const disposition = event.headers["content-disposition"];
+        if (!disposition) {
+          return fallback;
+        }
+
+        const match = /filename=("[^"]+"|[^;\s]+)/.exec(disposition);
+        if (!match) {
+          return fallback;
+        }
+
+        // strip quotes if present
+        return match[1].replace(/^"|"$/g, "");
+      })();
 
       return {
         filename,
