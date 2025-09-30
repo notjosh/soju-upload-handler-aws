@@ -1,9 +1,9 @@
 {
-  "name": "@monorepo-template/scripts",
+  "name": "@soju-upload-handler-aws/scripts",
   "version": "0.0.0",
   "type": "module",
   "dependencies": {
-    "@monorepo-template/core": "*",
+    "@soju-upload-handler-aws/core": "workspace:*",
     "sst": "*"
   },
   "scripts": {

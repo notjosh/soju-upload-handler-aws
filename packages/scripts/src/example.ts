@@ -1,4 +1,4 @@
 import { Resource } from "sst";
-import { Example } from "@monorepo-template/core/example";
+import { Example } from "@soju-upload-handler-aws/core/example";
 
 console.log(`${Example.hello()} Linked to ${Resource.MyBucket.name}.`);
